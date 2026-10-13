@@ -88,7 +88,7 @@ el('appeler').onclick = async () => {
     client.addListener(AnamEvent.SESSION_READY, () => statut('En ligne — parlez, on vous entend'));
     client.addListener(AnamEvent.CONNECTION_CLOSED, () => { fin(); couperMicro(); arret(); });
     el('appeler').style.display = 'none';
-    el('raccrocher').style.display = '';
+    el('raccrocher').style.display = 'inline-block';
     el('raccrocher').scrollIntoView({ behavior: 'smooth', block: 'center' });
     client.streamToVideoElement('video', micro).catch((e) => {
       console.error('flux', e); couperMicro(); arret("Erreur : l'appel n'a pas pu démarrer");
