@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Appel vidéo</title>
+<style>
+:root{--bg:#14110f;--card:#1e1a17;--txt:#f3ede6;--mut:#a89c90;--acc:#d9a066;--red:#c8553d}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%,#2a221c,var(--bg) 70%);color:var(--txt);font-family:Georgia,'Times New Roman',serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px}
+h1{font-weight:normal;font-size:28px;margin:0 0 4px;letter-spacing:.5px}
+#statut{color:var(--mut);font-family:-apple-system,system-ui,sans-serif;font-size:14px;margin-bottom:18px;min-height:18px;text-align:center}
+.ecran{width:min(900px,100%);max-height:62vh;aspect-ratio:3/2;background:var(--card);border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
+.boutons{display:flex;gap:14px;margin-top:22px}
+button{font-family:-apple-system,system-ui,sans-serif;font-size:16px;border:0;border-radius:999px;padding:14px 28px;cursor:pointer;color:#fff}
+#appeler{background:var(--acc);color:#1b140e;font-weight:600}
+#raccrocher{background:var(--red);display:none}
+button:disabled{opacity:.5;cursor:default}
+.note{color:var(--mut);font-family:-apple-system,system-ui,sans-serif;font-size:12px;margin-top:18px;text-align:center;max-width:520px}
+</style>
+</head>
+<body>
+<h1 id="nom">Appel vidéo</h1>
+<div id="statut">Prêt à appeler</div>
+<div class="ecran"><video id="video" autoplay playsinline></video></div>
+<div class="boutons"><button id="appeler">Appeler</button><button id="raccrocher">Raccrocher</button></div>
+<div class="note">Vous parlez à une reconstruction créée par intelligence artificielle. Autorisez le micro quand le navigateur le demande.</div>
+<script type="module">
+import { createClient } from 'https://esm.sh/@anam-ai/js-sdk@latest';
+import { AnamEvent } from 'https://esm.sh/@anam-ai/js-sdk@latest/dist/module/types';
+
+const SERVEUR = 'https://ara8.app.n8n.cloud/webhook';
+const p = new URLSearchParams(location.search);
+const id = p.get('id'), k = p.get('k');
+const el = (x) => document.getElementById(x);
+const statut = (t) => { el('statut').textContent = t; };
+let client = null, micro = null, historique = [], envoye = false;
+
+function couperMicro() {
+  try { if (micro) micro.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  micro = null;
+}
+function fin() {
+  if (envoye) return;
+  envoye = true;
+  const lignes = historique.filter((m) => m.role === 'user').map((m) => m.content).filter(Boolean);
+  if (lignes.length) {
+    fetch(SERVEUR + '/eternity-fin-appel', {
+      method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, k, messages: lignes })
+    }).catch(() => {});
+  }
+}
+function arret(msg) {
+  el('appeler').style.display = '';
+  el('appeler').disabled = false;
+  el('raccrocher').style.display = 'none';
+  statut(msg || 'Appel terminé');
+}
+
+if (!id || !k) { el('appeler').disabled = true; statut('Lien incomplet'); }
+
+el('appeler').onclick = async () => {
+  el('appeler').disabled = true; envoye = false; historique = [];
+  statut('Autorisez le micro…');
+  try {
+    micro = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+  } catch (e) {
+    console.error('micro', e);
+    arret("Micro refusé : autorisez-le (icône à gauche de l'adresse) puis réessayez");
+    return;
+  }
+  statut('Connexion…');
+  try {
+    const r = await fetch(SERVEUR + '/eternity-jeton', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, k })
+    });
+    const j = await r.json();
+    if (!j.sessionToken) { couperMicro(); arret(j.erreur || "Impossible de lancer l'appel"); return; }
+    el('nom').textContent = j.nom || 'Appel vidéo';
+    client = createClient(j.sessionToken);
+    client.addListener(AnamEvent.MESSAGE_HISTORY_UPDATED, (m) => { historique = m; });
+    client.addListener(AnamEvent.SESSION_READY, () => statut('En ligne — parlez, on vous entend'));
+    client.addListener(AnamEvent.CONNECTION_CLOSED, () => { fin(); couperMicro(); arret(); });
+    el('appeler').style.display = 'none';
+    el('raccrocher').style.display = '';
+    el('raccrocher').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    client.streamToVideoElement('video', micro).catch((e) => {
+      console.error('flux', e); couperMicro(); arret("Erreur : l'appel n'a pas pu démarrer");
+    });
+  } catch (e) {
+    console.error(e); couperMicro(); arret("Erreur : l'appel n'a pas pu démarrer");
+  }
+};
+
+el('raccrocher').onclick = () => {
+  try { if (client) client.stopStreaming(); } catch (e) {}
+  fin(); couperMicro(); arret();
+};
+addEventListener('pagehide', fin);
+</script>
+</body>
+</html>
